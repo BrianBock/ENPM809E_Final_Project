@@ -9,7 +9,6 @@ project(final_project)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
-  math
   nav_msgs
   rospy
   tf
