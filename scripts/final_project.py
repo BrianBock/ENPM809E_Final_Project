@@ -9,6 +9,7 @@ from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import LaserScan
 import math
+import numpy as np
 
 rospy.init_node("move_robot")
 rate = rospy.Rate(4)  # 4 Hz
@@ -56,16 +57,33 @@ def compute_dist(x1, y1, x2, y2):
 def find_wall(scan_data):
     """"Use the laser to determine where the closest wall is. Average laser scans in 15 deg increments to avoid nearby
     obstacles """
-    increments = list(range(0, 375, 15))
-    angles = {}
+    inc = 5  # the size of the angle clusters (degrees)
+    increments = list(range(0, 360 + inc, inc))
+    angles = {}  # a dictionary of the distances measured at each degree angle. Each dictionary key is an inc degree
+    # cluster list of angles
+    std_dict = {}
+    mean_dict = {}
     for i in range(0, len(increments) - 1):
         my_list = []
         for q in range(increments[i], increments[i + 1]):
             my_list.append(scan_data.ranges[q])
-        angles[increments[i]] = sum(my_list) / len(my_list)
-    nearest_wall = (min(angles.items(), key=lambda x: x[1])[0])
-    print(angles[nearest_wall])
+        # print(i)
+        # print(my_list)
+        # print("\n")
+        angles[increments[i]] = my_list  # sum(my_list) / len(my_list)
+    # The closest object that is a wall will have the smallest std deviation and smallest mean
+    for dist in angles:
+        std_dict[dist] = np.std(angles[dist])
+        mean_dict[dist] = sum(angles[dist]) / len(angles[dist])
+    # print("Standard Deviations:")
+    # print(std_dict)
+    # print("Means")
+    # print(mean_dict)
+
+    nearest_wall = (min(std_dict.items(), key=lambda x: x[1])[0])
+    # print(angles[nearest_wall])
     print("The nearest wall is at an angle {x} degrees from my current position".format(x=nearest_wall))
+    nearest_wall = math.radians(nearest_wall)  # Later operations are done in radians
 
     return nearest_wall
 
@@ -75,7 +93,23 @@ def go_to_wall(angle):
     away from the wall. Rotate so the wall is on the robot's right. When this is finished, the robot should be ready
     for 'hug_wall()' """
 
-    # rotate to correct angle
+    # Rotate to correct angle
+    (position, rotation) = get_odom_data()
+    # print(math.degrees(rotation))
+    # angle_to_goal = rotation + angle
+    # print(math.degrees(angle_to_goal))
+
+    while angle_to_goal - rotation > .008726646:  # half a degree, in radians
+        velocity_msg.angular.z = k_v_gain * angle_to_goal - rotation
+        if velocity_msg.angular.z > 0:
+            velocity_msg.angular.z = min(velocity_msg.angular.z, 1.5)
+        else:
+            velocity_msg.angular.z = max(velocity_msg.angular.z, -1.5)
+        pub.publish(velocity_msg)
+        (position, rotation) = get_odom_data()
+    velocity_msg.angular.z = 0.0
+    pub.publish(velocity_msg)
+    print("Facing the wall")
 
     while front > .3:
         # use P controller here. Robot should slow as it approaches wall
@@ -91,67 +125,6 @@ def hug_wall():
     pass
 
 
-def avoid_obstacle(scans):
-    # left = scans[0]
-    frontleft = scans[1]
-    front = scans[2]
-    frontright = scans[3]
-    # right = scans[4]
-    # speed = velocity_msg.linear.x  # Save the current speed for later
-    # write code to do obstacle avoidance
-    collision_ahead = False
-    if front < .5 or frontleft < .2 or frontright < .2:
-        collision_ahead = True
-        print('Collision ahead!')
-        rospy.logwarn('Collision ahead!')
-        velocity_msg.linear.x = 0  # Stop
-        velocity_msg.angular.z = 0
-        pub.publish(velocity_msg)
-        print(frontleft, frontright)
-        if frontleft > frontright:
-            # check left and right scan data. Turn towards emptiest side (furthest distance)
-            velocity_msg.angular.z = 1.5
-        else:
-            velocity_msg.angular.z = -1.5
-        pub.publish(velocity_msg)
-        if front < .5 and frontleft < .2 and frontright < .2:
-            print('Is this a wall?')
-            velocity_msg.angular.z = 1.5
-            pub.publish(velocity_msg)
-
-    elif collision_ahead:
-        velocity_msg.angular.z = 0
-        velocity_msg.linear.x = .1
-        pub.publish(velocity_msg)
-    # else:
-    #     collision_ahead = False
-
-
-def sensor_callback(msg):
-    front = msg.ranges[0]
-    frontleft = msg.ranges[15]
-    left = msg.ranges[90]
-    frontright = msg.ranges[345]
-    right = msg.ranges[270]
-
-    rospy.loginfo("Distance from obstacle (front): {f}".format(f=front))
-    rospy.loginfo("Distance from obstacle (left): {l}".format(l=left))
-    rospy.loginfo("Distance from obstacle (right): {r}".format(r=right))
-
-    avoid_obstacle([left, frontleft, front, frontright, right])
-
-
-def read_scan():
-    rospy.Subscriber("scan", LaserScan, sensor_callback)
-    print("Done scanning")
-    # rospy.spin()
-
-
-# def callback_360(msg):
-
-# return msg
-
-
 def scan_360():
     """Scan the entire environment (0-360deg) once"""
     print("Scanning!")
@@ -161,5 +134,5 @@ def scan_360():
 
 scan_data = scan_360()
 angle = find_wall(scan_data)
-# go_to_wall(angle)
+go_to_wall(angle)
 # hug_wall()
