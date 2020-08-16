@@ -20,7 +20,7 @@ tf_listener = tf.TransformListener()
 odom_frame = 'odom'
 base_frame = 'base_footprint'
 k_h_gain = 1
-k_v_gain = 1
+k_v_gain = 10
 
 
 def tf_first_time():
@@ -61,8 +61,7 @@ def find_wall(scan_data, attempt):
     increments = list(range(0, 360 + inc, inc))
     angles = {}  # a dictionary of the distances measured at each degree angle. Each dictionary key is an inc degree
     # cluster list of angles
-    std_dict = {}
-    mean_dict = {}
+    std_mean = {}
     for i in range(0, len(increments) - 1):
         my_list = []
         for q in range(increments[i], increments[i + 1]):
@@ -74,15 +73,59 @@ def find_wall(scan_data, attempt):
     # The best wall contenders have small deviations. The closest of those will be the one with the smallest average
     # distance
     for dist in angles:
-        std_dict[dist] = np.std(angles[dist])
-        mean_dict[dist] = sum(angles[dist]) / len(angles[dist])
+        std_mean[dist] = (np.std(angles[dist]), sum(angles[dist]) / len(angles[dist]))
 
-    nearest_wall = (min(std_dict.items(), key=lambda x: x[1])[0])
+    # Get the 5 best wall candidates
+    best_walls = []  # a list of the best wall candidates, where each candidate is a tuple (cluster, std, mean)
+    for i in range(5):
+        good_wall_key = min(std_mean.items(), key=lambda x: x[1])[0]
+        best_walls.append((good_wall_key, std_mean[good_wall_key][0], std_mean[good_wall_key][1]))
+        std_mean.pop(good_wall_key)
+
+    closest_walls = sorted(best_walls, key=lambda x: x[2])
+    print(closest_walls)
+    nearest_wall = closest_walls[attempt][0]
     # print(angles[nearest_wall])
     print("The nearest wall is at an angle {x} degrees from my current position".format(x=nearest_wall))
     nearest_wall = math.radians(nearest_wall)  # Later operations are done in radians
 
     return nearest_wall
+
+
+def go_straight_to_goal(goal, clearance):
+    # Code adapted from lecture 8 example code
+    (position, rotation) = get_odom_data()
+    last_rotation = 0
+    goal_x, goal_y = goal[0], goal[1]
+    print("Navigating to goal ({x}, {y})".format(x=goal_x, y=goal_y))
+    velocity_msg.angular.z = 0.0
+    pub.publish(velocity_msg)
+
+    # rospy.logwarn('goal_x: {x}'.format(x=goal_x))
+    # rospy.logwarn('goal_y: {y}'.format(y=goal_y))
+
+    # distance_to_goal = compute_dist(position.x, position.y, goal_x, goal_y)
+    # rospy.logwarn('distance: {d}'.format(d=distance_to_goal))
+    data = scan_360()
+    distance_to_goal = data.ranges[0] - clearance
+
+    while distance_to_goal > 0.05:
+        print("Trying to get to {f}".format(f=goal))
+        (position, rotation) = get_odom_data()
+        x_start = position.x
+        y_start = position.y
+        # distance_to_goal = compute_dist(position.x, position.y, goal_x, goal_y)
+        data = scan_360()
+        distance_to_goal = data.ranges[0] - clearance
+        velocity_msg.linear.x = min(k_h_gain * distance_to_goal, .3)
+        velocity_msg.angular.z = 0.0
+        pub.publish(velocity_msg)
+        rate.sleep()
+
+    velocity_msg.linear.x = 0.0
+    velocity_msg.angular.z = 0.0
+    pub.publish(velocity_msg)
+    return True
 
 
 def go_to_goal(goal):
@@ -128,8 +171,6 @@ def go_to_goal(goal):
 
         last_rotation = rotation
         pub.publish(velocity_msg)
-        # read_scan()
-        # go_to_goal(goal)
         rate.sleep()
 
     velocity_msg.linear.x = 0.0
@@ -148,18 +189,21 @@ def drive():
 
 def turn(angle):
     """Turn 'angle' radians"""
+    velocity_msg.linear.x = 0
+    pub.publish(velocity_msg)
     print("Turning {a} degrees".format(a=math.degrees(angle)))
     (position, rotation) = get_odom_data()
     # print(math.degrees(rotation))
     goal_angle = rotation + angle
     # print(math.degrees(angle_to_goal))
 
-    while goal_angle - rotation > math.radians(1):
-        velocity_msg.angular.z = k_v_gain * goal_angle - rotation
+    while abs(goal_angle - rotation) > math.radians(1):
+        print(math.degrees(goal_angle-rotation))
+        velocity_msg.angular.z = k_v_gain * (goal_angle - rotation)
         if velocity_msg.angular.z > 0:
-            velocity_msg.angular.z = min(velocity_msg.angular.z, 1)
+            velocity_msg.angular.z = min(velocity_msg.angular.z, .5)
         else:
-            velocity_msg.angular.z = max(velocity_msg.angular.z, -1)
+            velocity_msg.angular.z = max(velocity_msg.angular.z, -.5)
         pub.publish(velocity_msg)
         (position, rotation) = get_odom_data()
     velocity_msg.angular.z = 0.0
@@ -175,6 +219,7 @@ def go_to_wall(angle):
     # Rotate to correct angle
     turn(angle)
     print("Facing the wall")
+    rospy.sleep(.25)
 
     scan = scan_360()
     front = scan.ranges[0]
@@ -184,7 +229,7 @@ def go_to_wall(angle):
     goalx = math.cos(rotation) * (front - clearance) + position.x
     print("Current position: {x},{y}".format(x=position.x, y=position.y))
     print("Goal position: {x},{y}".format(x=goalx, y=goaly))
-    go_to_goal((goalx, goaly))
+    go_straight_to_goal((goalx, goaly), clearance)
     # while front > clearance:
     #     # use P controller here. Robot should slow as it approaches wall
     #     (position, rotation) = get_odom_data()
@@ -192,8 +237,8 @@ def go_to_wall(angle):
     #     pub.publish(velocity_msg)
     #     scan = scan_360()
     #     front = scan.ranges[0]
-    velocity_msg.linear.x = 0
-    velocity_msg.angular.z = 0
+    velocity_msg.linear.x = 0.0
+    velocity_msg.angular.z = 0.0
     pub.publish(velocity_msg)
     # rotate 90 CCW
     turn(math.pi / 2)
@@ -202,36 +247,95 @@ def go_to_wall(angle):
     return wall_start, clearance
 
 
+def determine_angle(F, FR, R, BR):
+    if FR == BR:
+        angle = 0
+        return angle
+    elif FR > BR:
+        a = BR * math.sin(math.radians(15))
+        c = BR * math.cos(math.radians(15))
+        d = R - c
+        e = math.sqrt(d ** 2 + a ** 2)
+        angle = -math.asin(d / e)
+    elif FR < BR:
+        a = FR * math.sin(math.radians(15))
+        c = FR * math.cos(math.radians(15))
+        d = R - c
+        e = math.sqrt(d**2 + a**2)
+        angle = math.asin(d/e)
+
+    print("a:{a}, c:{c}, d:{d}, e:{e}".format(a=a, c=c, d=d, e=e))
+    print("Need to turn {a} degrees".format(a=math.degrees(angle)))
+    # if angle - math.pi >= 0:
+    #     angle = -(angle - math.pi)
+    return angle
+
+
 def hug_wall(wall_start, clearance):
     """ This is the core of the wall follower algorithm. The robot drives straight with the wall a preset distance to
     it's right. """
     print("Wall following time!")
     success = False
-    velocity_msg.linear.x = .3
-    pub.publish(velocity_msg)
-    F, FR, R, BR = right_scan()
-    print("Distances:")
-    print("Front {f}, FR {fr}, R {r}, BR {br}".format(f=F, fr=FR, r=R, br=BR))
-    direction = 1
-    angle_dist = clearance / math.cos(math.radians(15))  # +.1
-    theta = math.acos(R / FR)  # Angle between the horizontal and angle of FR
-    phi = math.acos(R / BR)
-    print("Theta is {t}".format(t=math.degrees(theta)))
-    print("Phi is {p}".format(p=math.degrees(phi)))
-    while (BR > angle_dist) or (FR > angle_dist):
-        if FR - BR > .1:
-            # Robot has veered left of the wall and must turn right slightly to compensate
-            direction = -1
+    speed = .3
+    while not success:
+        FFL, F, FFR, FR, R, BR = right_scan()
+        print("Distances:")
+        print("Front {f}, FR {fr}, R {r}, BR {br}".format(f=F, fr=FR, r=R, br=BR))
+        # direction = 1
+        # angle_dist = clearance / math.cos(math.radians(15))  # +.1
+        if F < .3:  # collision ahead
+            print("collision ahead")
+            if FFL <.3 or FFR <.3:
+                print("I'm headfirst in a wall. Reverse!")
+                velocity_msg.linear.x = -speed
+                pub.publish(velocity_msg)
+                turn(math.radians(90))
+                velocity_msg.linear.x = speed
+                pub.publish(velocity_msg)
+            else:
+                velocity_msg.linear.x = 0
+                pub.publish(velocity_msg)
+                turn(math.radians(-5))
+                velocity_msg.linear.x = speed
+                pub.publish(velocity_msg)
+        # Victory conditions
+        if F == float('inf'):
+            print("I can see the exit!")
+            if FR == float('inf'):
+                print("I'm almost there!")
+                angle_dist = math.inf
+            if BR == float('inf'):
+                print("Victory!")
+                success = True
+                break
+        # theta = math.acos(R / FR)  # Angle between the horizontal and angle of FR
+        # phi = math.acos(R / BR)
+        # print("Theta is {t}".format(t=math.degrees(theta)))
+        # print("Phi is {p}".format(p=math.degrees(phi)))
 
-        if BR - FR > .1:
-            # Robot has veered right of the wall (may soon collide) and must turn left slightly to compensate
-            direction = 1
+        velocity_msg.linear.x = speed
+        pub.publish(velocity_msg)
+        rospy.sleep(.25)
+        ang = determine_angle(F, FR, R, BR)
+        turn(ang)
 
-    velocity_msg.angular.z = min(direction)
-    (position, rotation) = get_odom_data()
-    if abs(position.x - wall_start.x) < 0.1 and abs(position.y - wall_start.y):
-        # Robot has returned to where it started when it began following this wall. This 'wall' is an obstacle
-        success = False
+        # while (FR > angle_dist) or (BR > angle_dist):
+        #     if FR - BR > .1:
+        #         # Robot has veered left of the wall and must turn right slightly to compensate
+        #         direction = -1
+        #
+        #     if BR - FR > .1:
+        #         # Robot has veered right of the wall (may soon collide) and must turn left slightly to compensate
+        #         direction = 1
+        #
+        # velocity_msg.angular.z = min(direction)
+
+
+
+        (position, rotation) = get_odom_data()
+        if abs(position.x - wall_start.x) < 0.1 and abs(position.y - wall_start.y):
+            # Robot has returned to where it started when it began following this wall. This 'wall' is an obstacle
+            success = False
     return success
 
 
@@ -246,7 +350,7 @@ def right_scan():
     """Scan the laser. Return only the values needed for hug_wall"""
     scan = rospy.wait_for_message("scan", LaserScan, timeout=None)
 
-    return scan.ranges[0], scan.ranges[285], scan.ranges[270], scan.ranges[255]
+    return scan.ranges[15], scan.ranges[0], scan.ranges[345], scan.ranges[285], scan.ranges[270], scan.ranges[255]
 
 
 success = False
@@ -268,7 +372,8 @@ while not success:
     wall_start, clearance = go_to_wall(angle)
     success = hug_wall(wall_start, clearance)
     if success:
-        print("Made it out of the maze!")
+        print("I made it out of the maze!")
+        print("Exiting program")
         break
     else:
         go_to_goal(scan_start)
