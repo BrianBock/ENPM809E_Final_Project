@@ -20,7 +20,7 @@ tf_listener = tf.TransformListener()
 odom_frame = 'odom'
 base_frame = 'base_footprint'
 k_h_gain = 1
-k_v_gain = 10
+k_v_gain = 1
 
 
 def tf_first_time():
@@ -191,14 +191,19 @@ def turn(angle):
     """Turn 'angle' radians"""
     velocity_msg.linear.x = 0
     pub.publish(velocity_msg)
+    rate.sleep()
     print("Turning {a} degrees".format(a=math.degrees(angle)))
     (position, rotation) = get_odom_data()
+    print("Current orientation is "+str(math.degrees(rotation)))
     # print(math.degrees(rotation))
     goal_angle = rotation + angle
-    # print(math.degrees(angle_to_goal))
+    print("Goal orientation is "+str(math.degrees(goal_angle)))
+    # if goal_angle > math.pi:
+    #     goal_angle = -(math.pi - goal_angle)
+    #     print("New goal angle is "+str(math.degrees(goal_angle)))
 
-    while abs(goal_angle - rotation) > math.radians(1):
-        print(math.degrees(goal_angle-rotation))
+    while abs(goal_angle - rotation) > math.radians(.2):
+        # print(math.degrees(goal_angle-rotation))
         velocity_msg.angular.z = k_v_gain * (goal_angle - rotation)
         if velocity_msg.angular.z > 0:
             velocity_msg.angular.z = min(velocity_msg.angular.z, .5)
@@ -206,9 +211,13 @@ def turn(angle):
             velocity_msg.angular.z = max(velocity_msg.angular.z, -.5)
         pub.publish(velocity_msg)
         (position, rotation) = get_odom_data()
+        rate.sleep()
     velocity_msg.angular.z = 0.0
     pub.publish(velocity_msg)
+    (position, rotation) = get_odom_data()
+    print("New orientation is "+str(math.degrees(rotation)))
     print("Done turning")
+    rate.sleep()
 
 
 def go_to_wall(angle):
@@ -248,27 +257,43 @@ def go_to_wall(angle):
 
 
 def determine_angle(F, FR, R, BR):
+    if R > .5:  # or FR > .5 or BR > .5:
+        angle = -math.radians(30)
+        print("Uh oh. I no longer have the wall close my my right")
+        return angle
     if FR == BR:
         angle = 0
         return angle
     elif FR > BR:
         a = BR * math.sin(math.radians(15))
         c = BR * math.cos(math.radians(15))
-        d = R - c
+        d = abs(R - c)
         e = math.sqrt(d ** 2 + a ** 2)
         angle = -math.asin(d / e)
+        # if angle > math.pi:
+        #     angle = angle - math.pi
     elif FR < BR:
         a = FR * math.sin(math.radians(15))
         c = FR * math.cos(math.radians(15))
-        d = R - c
+        d = abs(R - c)
         e = math.sqrt(d**2 + a**2)
         angle = math.asin(d/e)
+        # if angle > math.pi:
+        #     angle = angle - math.pi
 
     print("a:{a}, c:{c}, d:{d}, e:{e}".format(a=a, c=c, d=d, e=e))
     print("Need to turn {a} degrees".format(a=math.degrees(angle)))
     # if angle - math.pi >= 0:
     #     angle = -(angle - math.pi)
     return angle
+
+
+def command_speed(lin, ang):
+    """Command the Turtlebot to a specified linear and angular speed"""
+    velocity_msg.linear.x = lin
+    velocity_msg.angular.z = ang
+    pub.publish(velocity_msg)
+    rate.sleep()
 
 
 def hug_wall(wall_start, clearance):
@@ -285,19 +310,15 @@ def hug_wall(wall_start, clearance):
         # angle_dist = clearance / math.cos(math.radians(15))  # +.1
         if F < .3:  # collision ahead
             print("collision ahead")
-            if FFL <.3 or FFR <.3:
+            if FFL < .3 or FFR < .3:
                 print("I'm headfirst in a wall. Reverse!")
-                velocity_msg.linear.x = -speed
-                pub.publish(velocity_msg)
+                command_speed(-speed, 0)
                 turn(math.radians(90))
-                velocity_msg.linear.x = speed
-                pub.publish(velocity_msg)
+                command_speed(speed, 0)
             else:
-                velocity_msg.linear.x = 0
-                pub.publish(velocity_msg)
+                command_speed(0, 0)
                 turn(math.radians(-5))
-                velocity_msg.linear.x = speed
-                pub.publish(velocity_msg)
+                command_speed(speed, 0)
         # Victory conditions
         if F == float('inf'):
             print("I can see the exit!")
@@ -308,17 +329,10 @@ def hug_wall(wall_start, clearance):
                 print("Victory!")
                 success = True
                 break
-        # theta = math.acos(R / FR)  # Angle between the horizontal and angle of FR
-        # phi = math.acos(R / BR)
-        # print("Theta is {t}".format(t=math.degrees(theta)))
-        # print("Phi is {p}".format(p=math.degrees(phi)))
 
-        velocity_msg.linear.x = speed
-        pub.publish(velocity_msg)
-        rospy.sleep(.25)
+        command_speed(speed, 0)
         ang = determine_angle(F, FR, R, BR)
         turn(ang)
-
         # while (FR > angle_dist) or (BR > angle_dist):
         #     if FR - BR > .1:
         #         # Robot has veered left of the wall and must turn right slightly to compensate
