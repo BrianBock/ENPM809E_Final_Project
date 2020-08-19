@@ -15,5 +15,8 @@ When Gazebo finishes opening, run the program:
 `rosrun final_project final_project.py`
 
 
+If the robot has trouble picking the right wall, change the value of `inc` in `find_wall()`. For maze 1, 5 degrees works well. For maze 2, 60 degrees seems to work better (for the default start position).
+The robot often struggles to get through the upper portion of the narrow angled section at the bottom edge of room 7. Sometimes the robot will recover, sometimes it just gets stuck. If it gets stuck, respawn the robot at (14,1) and restart the program. It will find the wall, get to it, and then finish the maze out. 
+
 ## Dependencies
 This program requires `numpy`, which is not installed by default with Python or ROS. 
