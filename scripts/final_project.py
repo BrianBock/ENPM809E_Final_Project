@@ -22,7 +22,8 @@ base_frame = 'base_footprint'
 k_h_gain = 1
 k_v_gain = 1
 right_check_angle = 15
-speed = .3
+speed = .1
+
 
 def tf_first_time():
     # It seems the first time tf_listener is called, it fails, which is why this try is here
@@ -46,7 +47,7 @@ def get_odom_data():
         rotation = euler_from_quaternion(rot)[2]
         # euler_from_quaternion returns any angle > 180 as angle-360
         if rotation < 0:
-            rotation = rotation + 2*math.pi
+            rotation = rotation + 2 * math.pi
         # print("Rotation is {a}".format(a=math.degrees(rotation)))
     except (tf.Exception, tf.ConnectivityException, tf.LookupException):
         rospy.loginfo("TF Exception")
@@ -178,9 +179,7 @@ def go_to_goal(goal):
         pub.publish(velocity_msg)
         rate.sleep()
 
-    velocity_msg.linear.x = 0.0
-    velocity_msg.angular.z = 0.0
-    pub.publish(velocity_msg)
+    command_speed(0, 0)
     return True
 
 
@@ -190,15 +189,17 @@ def drive():
     command_speed(0, 0)
 
 
-def turn(angle):
+def turn(angle, linspeed=0.0):
     """Turn 'angle' radians"""
-    command_speed(0, 0)
+    command_speed(linspeed, 0)
     print("Turning {a} degrees".format(a=math.degrees(angle)))
     (position, rotation) = get_odom_data()
-    print("Current orientation is "+str(math.degrees(rotation)))
+    print("Current orientation is " + str(math.degrees(rotation)))
     # print(math.degrees(rotation))
     goal_angle = rotation + angle
-    print("Goal orientation is "+str(math.degrees(goal_angle)))
+    if goal_angle >= 2*math.pi:
+        goal_angle = goal_angle - 2*math.pi
+    print("Goal orientation is " + str(math.degrees(goal_angle)))
     # if goal_angle > math.pi:
     #     goal_angle = -(math.pi - goal_angle)
     #     print("New goal angle is "+str(math.degrees(goal_angle)))
@@ -216,7 +217,7 @@ def turn(angle):
     velocity_msg.angular.z = 0.0
     pub.publish(velocity_msg)
     (position, rotation) = get_odom_data()
-    print("New orientation is "+str(math.degrees(rotation)))
+    print("New orientation is " + str(math.degrees(rotation)))
     print("Done turning")
     rate.sleep()
 
@@ -239,6 +240,7 @@ def go_to_wall(angle):
     goalx = math.cos(rotation) * (front - clearance) + position.x
     print("Current position: {x},{y}".format(x=position.x, y=position.y))
     print("Goal position: {x},{y}".format(x=goalx, y=goaly))
+    # go_to_goal((goalx,goaly))
     go_straight_to_goal((goalx, goaly), clearance)
     # while front > clearance:
     #     # use P controller here. Robot should slow as it approaches wall
@@ -277,8 +279,8 @@ def determine_angle(F, FR, R, BR):
         a = FR * math.sin(math.radians(right_check_angle))
         c = FR * math.cos(math.radians(right_check_angle))
         d = abs(R - c)
-        e = math.sqrt(d**2 + a**2)
-        angle = math.asin(d/e)
+        e = math.sqrt(d ** 2 + a ** 2)
+        angle = math.asin(d / e)
         # if angle > math.pi:
         #     angle = angle - math.pi
 
@@ -308,18 +310,18 @@ def hug_wall(wall_start, clearance):
         print("Front {f}, FR {fr}, R {r}, BR {br}".format(f=F, fr=FR, r=R, br=BR))
         # direction = 1
         # angle_dist = clearance / math.cos(math.radians(15))  # +.1
-        if F < .4:  # collision ahead
-            print("collision ahead")
-            if FFL < .4 or FFR < .4:
-                print("I'm headfirst in a wall. Reverse!")
-                command_speed(-speed, 0)
-                rospy.sleep(.25)
-                turn(math.radians(90))
-                command_speed(speed, 0)
-            else:
-                command_speed(0, 0)
-                turn(math.radians(-5))
-                command_speed(speed, 0)
+        # if F < .4:  # collision ahead
+        #     print("collision ahead")
+        #     if FFL < .4 or FFR < .4:
+        #         print("I'm headfirst in a wall. Reverse!")
+        #         command_speed(-speed, 0)
+        #         rospy.sleep(.25)
+        #         turn(math.radians(90))
+        #         command_speed(speed, 0)
+        #     else:
+        #         command_speed(0, 0)
+        #         turn(math.radians(-5))
+        #         command_speed(speed, 0)
         # Victory conditions
         if F == float('inf'):
             print("I can see the exit!")
@@ -332,21 +334,47 @@ def hug_wall(wall_start, clearance):
                 break
 
         command_speed(speed, 0)
+        if F < 2*clearance and FFL < 2*clearance and FFR < 2*clearance:
+            print("I think there's a wall in front of me")
+            command_speed(0, 0)
+            turn(math.pi/2)
+            command_speed(speed, 0)
+
+        if FR > BR:
+            # Robot has veered left of the wall and must turn right slightly to compensate
+            print("Adjusting to the right")
+            velocity_msg.angular.z = -.1
+        elif BR > FR:
+            # Robot has veered right of the wall and must turn left slightly to compensate
+            print("Adjusting to the left")
+            velocity_msg.angular.z = .1
+        pub.publish(velocity_msg)
+        rate.sleep()
+
         # ang = determine_angle(F, FR, R, BR)
         # turn(ang)
-        command_speed(speed, 0)
-        if FR > (clearance/math.cos(math.radians(right_check_angle)))+.1 or BR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
-            # Robot has veered left of the wall and must turn right slightly to compensate
-            corrective_angle = math.radians(right_check_angle) - math.acos(clearance/FR)
-            print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
-            turn(corrective_angle)
-            command_speed(speed, 0)
-        if BR > (clearance/math.cos(math.radians(right_check_angle)))+.1 or FR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
-            # Robot has veered left of the wall and must turn right slightly to compensate
-            corrective_angle = math.acos(clearance / FR) - math.radians(right_check_angle)
-            print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
-            turn(corrective_angle)
-            command_speed(speed, 0)
+        # command_speed(speed, 0)
+        # if (FR - BR) > .1:
+        #     turn(math.radians(1))
+        #     command_speed(speed)
+        # elif (BR - FR) > .1:
+        #     turn(math.radians(-1))
+        #     command_speed(speed)
+        #
+        # if FR > (clearance/math.cos(math.radians(right_check_angle))):  # or BR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
+        #     # Robot has veered left of the wall and must turn right slightly to compensate
+        #     corrective_angle = math.radians(right_check_angle) - math.acos(clearance/FR)
+        #     print("Too far left!")
+        #     print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
+        #     turn(corrective_angle, speed)
+        #     command_speed(speed, 0)
+        # if BR > (clearance/math.cos(math.radians(right_check_angle))):  # +.1 or FR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
+        #     # Robot has veered right of the wall and must turn left slightly to compensate
+        #     corrective_angle = math.acos(clearance / FR) - math.radians(right_check_angle)
+        #     print("Too far right!")
+        #     print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
+        #     turn(corrective_angle)
+        #     command_speed(speed, 0)
         # while (FR > angle_dist) or (BR > angle_dist):
         #     if FR - BR > .1:
         #         # Robot has veered left of the wall and must turn right slightly to compensate
@@ -357,8 +385,6 @@ def hug_wall(wall_start, clearance):
         #         direction = 1
         # #
         # velocity_msg.angular.z = min(direction)
-
-
 
         (position, rotation) = get_odom_data()
         if abs(position.x - wall_start.x) < 0.1 and abs(position.y - wall_start.y):
@@ -378,14 +404,14 @@ def right_scan():
     """Scan the laser. Return only the values needed for hug_wall"""
     scan = rospy.wait_for_message("scan", LaserScan, timeout=None)
 
-    return scan.ranges[15], scan.ranges[0], scan.ranges[360-15], scan.ranges[270+right_check_angle], scan.ranges[270], scan.ranges[270-right_check_angle]
+    return scan.ranges[15], scan.ranges[0], scan.ranges[360 - 15], scan.ranges[270 + right_check_angle], scan.ranges[
+        270], scan.ranges[270 - right_check_angle]
 
 
 # turn(math.radians(35))
 # turn(math.radians(50))
 # turn(math.radians(65))
 # turn(math.radians(65))
-
 
 
 success = False
