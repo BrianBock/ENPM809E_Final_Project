@@ -184,7 +184,7 @@ def go_to_goal(goal):
 
 
 def drive():
-    command_speed(1, 0)
+    command_speed(speed, 0)
     rospy.sleep(1)
     command_speed(0, 0)
 
@@ -285,10 +285,11 @@ def hug_wall(wall_start, clearance):
                 command_speed(0, 0)
                 turn(math.pi/2)
                 command_speed(speed, 0)
-            if FR > 3*clearance and BR > 3*clearance:
-                print("Too far from the wall! Bank right!")
-                velocity_msg.angular.z = -.9
-
+            # if FR > .5 and BR > .5:
+            #     print("Too far from the wall! Bank right!")
+            #     velocity_msg.angular.z = -.5
+            #     pub.publish(velocity_msg)
+            #     rate.sleep()
             if FR > BR:
                 # Robot has veered left of the wall and must turn right slightly to compensate
                 print("Adjusting to the right")
@@ -309,7 +310,7 @@ def hug_wall(wall_start, clearance):
             rate.sleep()
 
         (position, rotation) = get_odom_data()
-        if abs(position.x - wall_start.x) < 0.1 and abs(position.y - wall_start.y):
+        if abs(position.x - wall_start.x) < .3 and abs(position.y - wall_start.y) < .3:
             # Robot has returned to where it started when it began following this wall. This 'wall' is an obstacle
             success = False
     return success
