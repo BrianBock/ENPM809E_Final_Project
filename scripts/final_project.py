@@ -344,10 +344,18 @@ def hug_wall(wall_start, clearance):
             # Robot has veered left of the wall and must turn right slightly to compensate
             print("Adjusting to the right")
             velocity_msg.angular.z = -.1
+            if FR - BR > 3:
+                # Robot is at a turn
+                velocity_msg.angular.z = -.7
+                print("Hard turn right!")
         elif BR > FR:
             # Robot has veered right of the wall and must turn left slightly to compensate
             print("Adjusting to the left")
             velocity_msg.angular.z = .1
+            if BR - FR > 3:
+                # Robot is at a turn
+                velocity_msg.angular.z = .7
+                print("Hard turn left!")
         pub.publish(velocity_msg)
         rate.sleep()
 
