@@ -200,9 +200,6 @@ def turn(angle, linspeed=0.0):
     if goal_angle >= 2*math.pi:
         goal_angle = goal_angle - 2*math.pi
     print("Goal orientation is " + str(math.degrees(goal_angle)))
-    # if goal_angle > math.pi:
-    #     goal_angle = -(math.pi - goal_angle)
-    #     print("New goal angle is "+str(math.degrees(goal_angle)))
 
     while abs(goal_angle - rotation) > math.radians(1):
         # print(math.degrees(goal_angle-rotation))
@@ -242,13 +239,6 @@ def go_to_wall(angle):
     print("Goal position: {x},{y}".format(x=goalx, y=goaly))
     # go_to_goal((goalx,goaly))
     go_straight_to_goal((goalx, goaly), clearance)
-    # while front > clearance:
-    #     # use P controller here. Robot should slow as it approaches wall
-    #     (position, rotation) = get_odom_data()
-    #     velocity_msg.linear.x = min(k_h_gain * (front-clearance), .2)
-    #     pub.publish(velocity_msg)
-    #     scan = scan_360()
-    #     front = scan.ranges[0]
     velocity_msg.linear.x = 0.0
     velocity_msg.angular.z = 0.0
     pub.publish(velocity_msg)
@@ -257,38 +247,6 @@ def go_to_wall(angle):
     # Save position for obstacle check
     wall_start = get_odom_data()[0]
     return wall_start, clearance
-
-
-def determine_angle(F, FR, R, BR):
-    if R > .5:  # or FR > .5 or BR > .5:
-        angle = -math.radians(30)
-        print("Uh oh. I no longer have the wall close my my right")
-        return angle
-    if FR == BR:
-        angle = 0
-        return angle
-    elif FR > BR:
-        a = BR * math.sin(math.radians(right_check_angle))
-        c = BR * math.cos(math.radians(right_check_angle))
-        d = abs(R - c)
-        e = math.sqrt(d ** 2 + a ** 2)
-        angle = -math.asin(d / e)
-        # if angle > math.pi:
-        #     angle = angle - math.pi
-    elif FR < BR:
-        a = FR * math.sin(math.radians(right_check_angle))
-        c = FR * math.cos(math.radians(right_check_angle))
-        d = abs(R - c)
-        e = math.sqrt(d ** 2 + a ** 2)
-        angle = math.asin(d / e)
-        # if angle > math.pi:
-        #     angle = angle - math.pi
-
-    print("a:{a}, c:{c}, d:{d}, e:{e}".format(a=a, c=c, d=d, e=e))
-    print("Need to turn {a} degrees".format(a=math.degrees(angle)))
-    # if angle - math.pi >= 0:
-    #     angle = -(angle - math.pi)
-    return angle
 
 
 def command_speed(lin, ang=0):
@@ -309,20 +267,7 @@ def hug_wall(wall_start, clearance):
         FFL, F, FFR, FR, R, BR = right_scan()
         print("Distances:")
         print("Front {f}, FR {fr}, R {r}, BR {br}".format(f=F, fr=FR, r=R, br=BR))
-        # direction = 1
-        # angle_dist = clearance / math.cos(math.radians(15))  # +.1
-        # if F < .4:  # collision ahead
-        #     print("collision ahead")
-        #     if FFL < .4 or FFR < .4:
-        #         print("I'm headfirst in a wall. Reverse!")
-        #         command_speed(-speed, 0)
-        #         rospy.sleep(.25)
-        #         turn(math.radians(90))
-        #         command_speed(speed, 0)
-        #     else:
-        #         command_speed(0, 0)
-        #         turn(math.radians(-5))
-        #         command_speed(speed, 0)
+
         # Victory conditions
         if F == float('inf'):
             print("I can see the exit!")
@@ -363,41 +308,6 @@ def hug_wall(wall_start, clearance):
             pub.publish(velocity_msg)
             rate.sleep()
 
-        # ang = determine_angle(F, FR, R, BR)
-        # turn(ang)
-        # command_speed(speed, 0)
-        # if (FR - BR) > .1:
-        #     turn(math.radians(1))
-        #     command_speed(speed)
-        # elif (BR - FR) > .1:
-        #     turn(math.radians(-1))
-        #     command_speed(speed)
-        #
-        # if FR > (clearance/math.cos(math.radians(right_check_angle))):  # or BR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
-        #     # Robot has veered left of the wall and must turn right slightly to compensate
-        #     corrective_angle = math.radians(right_check_angle) - math.acos(clearance/FR)
-        #     print("Too far left!")
-        #     print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
-        #     turn(corrective_angle, speed)
-        #     command_speed(speed, 0)
-        # if BR > (clearance/math.cos(math.radians(right_check_angle))):  # +.1 or FR < (clearance/math.cos(math.radians(right_check_angle)))+.1:
-        #     # Robot has veered right of the wall and must turn left slightly to compensate
-        #     corrective_angle = math.acos(clearance / FR) - math.radians(right_check_angle)
-        #     print("Too far right!")
-        #     print("I'm off by {a} degrees. Correcting that now.".format(a=corrective_angle))
-        #     turn(corrective_angle)
-        #     command_speed(speed, 0)
-        # while (FR > angle_dist) or (BR > angle_dist):
-        #     if FR - BR > .1:
-        #         # Robot has veered left of the wall and must turn right slightly to compensate
-        #         direction = -1
-        #
-        #     if BR - FR > .1:
-        #         # Robot has veered right of the wall (may soon collide) and must turn left slightly to compensate
-        #         direction = 1
-        # #
-        # velocity_msg.angular.z = min(direction)
-
         (position, rotation) = get_odom_data()
         if abs(position.x - wall_start.x) < 0.1 and abs(position.y - wall_start.y):
             # Robot has returned to where it started when it began following this wall. This 'wall' is an obstacle
@@ -418,12 +328,6 @@ def right_scan():
 
     return scan.ranges[15], scan.ranges[0], scan.ranges[360 - 15], scan.ranges[270 + right_check_angle], scan.ranges[
         270], scan.ranges[270 - right_check_angle]
-
-
-# turn(math.radians(35))
-# turn(math.radians(50))
-# turn(math.radians(65))
-# turn(math.radians(65))
 
 
 success = False
