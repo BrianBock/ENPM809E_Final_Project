@@ -23,6 +23,8 @@ k_h_gain = 1
 k_v_gain = 1
 right_check_angle = 15
 speed = .1
+victory_x = rospy.get_param("maze_exit_x")
+victory_y = rospy.get_param("maze_exit_y")
 
 
 def tf_first_time():
@@ -352,6 +354,8 @@ while not success:
     if success:
         print("I made it out of the maze!")
         command_speed(0, 0)
+        (position, rotation) = get_odom_data()
+        print("The specified exit was at ({a},{b}). I exited at ({c},{d})".format(a=victory_x, b=victory_y, c=position.x, d=position.y))
         print("Exiting program")
         break
     else:
