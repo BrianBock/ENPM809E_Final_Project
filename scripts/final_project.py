@@ -304,6 +304,7 @@ def hug_wall(wall_start, clearance):
     it's right. """
     print("Wall following time!")
     success = False
+    near_exit = False
     while not success:
         FFL, F, FFR, FR, R, BR = right_scan()
         print("Distances:")
@@ -327,37 +328,40 @@ def hug_wall(wall_start, clearance):
             print("I can see the exit!")
             if FR == float('inf'):
                 print("I'm almost there!")
-                angle_dist = math.inf
+                near_exit = True
             if BR == float('inf'):
                 print("Victory!")
                 success = True
                 break
-
-        command_speed(speed, 0)
-        if F < 2*clearance and FFL < 2*clearance and FFR < 2*clearance:
-            print("I think there's a wall in front of me")
-            command_speed(0, 0)
-            turn(math.pi/2)
+        if not near_exit:
             command_speed(speed, 0)
+            if F < 2*clearance and FFL < 2*clearance and FFR < 2*clearance:
+                print("I think there's a wall in front of me")
+                command_speed(0, 0)
+                turn(math.pi/2)
+                command_speed(speed, 0)
+            if FR > 3*clearance and BR > 3*clearance:
+                print("Too far from the wall! Bank right!")
+                velocity_msg.angular.z = -.9
 
-        if FR > BR:
-            # Robot has veered left of the wall and must turn right slightly to compensate
-            print("Adjusting to the right")
-            velocity_msg.angular.z = -.1
-            if FR - BR > 3:
-                # Robot is at a turn
-                velocity_msg.angular.z = -.7
-                print("Hard turn right!")
-        elif BR > FR:
-            # Robot has veered right of the wall and must turn left slightly to compensate
-            print("Adjusting to the left")
-            velocity_msg.angular.z = .1
-            if BR - FR > 3:
-                # Robot is at a turn
-                velocity_msg.angular.z = .7
-                print("Hard turn left!")
-        pub.publish(velocity_msg)
-        rate.sleep()
+            if FR > BR:
+                # Robot has veered left of the wall and must turn right slightly to compensate
+                print("Adjusting to the right")
+                velocity_msg.angular.z = -.1
+                if FR - BR > 2:
+                    # Robot is at a turn
+                    velocity_msg.angular.z = -.7
+                    print("Hard turn right!")
+            elif BR > FR:
+                # Robot has veered right of the wall and must turn left slightly to compensate
+                print("Adjusting to the left")
+                velocity_msg.angular.z = .1
+                if BR - FR > 2:
+                    # Robot is at a turn
+                    velocity_msg.angular.z = .7
+                    print("Hard turn left!")
+            pub.publish(velocity_msg)
+            rate.sleep()
 
         # ang = determine_angle(F, FR, R, BR)
         # turn(ang)
@@ -442,6 +446,7 @@ while not success:
     success = hug_wall(wall_start, clearance)
     if success:
         print("I made it out of the maze!")
+        command_speed(0, 0)
         print("Exiting program")
         break
     else:
